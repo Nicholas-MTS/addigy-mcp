@@ -4,7 +4,7 @@
   "description": "MCP server for Addigy Apple device management",
   "type": "module",
   "scripts": {
-    "build": "node --max-old-space-size=4096 node_modules/typescript/bin/tsc",
+    "build": "esbuild src/httpServer.ts --bundle --platform=node --target=node20 --format=esm --outfile=dist/httpServer.js --external:@modelcontextprotocol/sdk --external:axios --external:zod",
     "start": "node dist/httpServer.js",
     "dev": "tsx src/httpServer.ts"
   },
@@ -15,6 +15,7 @@
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
+    "esbuild": "^0.21.0",
     "tsx": "^4.0.0",
     "typescript": "^5.0.0"
   },
