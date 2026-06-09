@@ -1,149 +1,152 @@
 import axios, { AxiosInstance } from "axios";
 
 export class AddigyClient {
-  private v2: AxiosInstance;
+  private v1: AxiosInstance;
+  private clientId: string;
+  private clientSecret: string;
 
-  constructor(_clientId: string, _clientSecret: string, apiToken: string) {
-    // V1 is deprecated — all calls use V2 Bearer token auth
-    this.v2 = axios.create({
-      baseURL: "https://api.addigy.com/api/v2",
+  constructor(clientId: string, clientSecret: string, _apiToken: string) {
+    this.clientId = clientId;
+    this.clientSecret = clientSecret;
+
+    // V1 — credentials passed as query params on every request
+    // Note: V1 is deprecated by Addigy but still functional as of June 2026
+    this.v1 = axios.create({
+      baseURL: "https://prod.addigy.com/api",
       timeout: 30000,
-      headers: {
-        "api-key": apiToken,
-        "Content-Type": "application/json",
-      },
     });
+  }
+
+  private v1Params(extra: Record<string, string> = {}) {
+    return { client_id: this.clientId, client_secret: this.clientSecret, ...extra };
   }
 
   // ── Device helpers ──────────────────────────────────────────────
 
   async getDevices() {
-    const res = await this.v2.post("/devices", { filters: [], page: 1, per_page: 100 });
+    const res = await this.v1.get("/devices", { params: this.v1Params() });
     return res.data;
   }
 
   async getOnlineDevices() {
-    const res = await this.v2.post("/devices", {
-      filters: [{ audit_field: "online", type: "boolean", operation: "=", value: true }],
-      page: 1,
-      per_page: 100,
-    });
+    const res = await this.v1.get("/devices/online", { params: this.v1Params() });
     return res.data;
   }
 
   async getOfflineDevices() {
-    const res = await this.v2.post("/devices", {
-      filters: [{ audit_field: "online", type: "boolean", operation: "=", value: false }],
-      page: 1,
-      per_page: 100,
-    });
-    return res.data;
+    const allDevices = await this.getDevices();
+    return allDevices.filter((d: Record<string, unknown>) => !d.online);
   }
 
   async getDeviceById(agentId: string) {
-    const res = await this.v2.post("/devices", {
-      filters: [{ audit_field: "agentid", type: "string", operation: "=", value: agentId }],
-      page: 1,
-      per_page: 1,
-    });
-    return res.data;
+    const allDevices = await this.getDevices();
+    return allDevices.filter((d: Record<string, unknown>) => d.agentid === agentId);
   }
 
   async getDevicesByOS(osVersion: string) {
-    const res = await this.v2.post("/devices", {
-      filters: [{ audit_field: "mac_os_x_version", type: "string", operation: "contains", value: osVersion }],
-      page: 1,
-      per_page: 100,
-    });
-    return res.data;
+    const allDevices = await this.getDevices();
+    return allDevices.filter((d: Record<string, unknown>) =>
+      d.mac_os_x_version && String(d.mac_os_x_version).includes(osVersion)
+    );
   }
 
   async getDevicesWithLowDisk(thresholdPercent = 10) {
-    const res = await this.v2.post("/devices", {
-      filters: [{ audit_field: "free_disk_percentage", type: "number", operation: "<=", value: thresholdPercent }],
-      page: 1,
-      per_page: 100,
-    });
-    return res.data;
+    const allDevices = await this.getDevices();
+    return allDevices.filter((d: Record<string, unknown>) =>
+      d.free_disk_percentage !== undefined && Number(d.free_disk_percentage) <= thresholdPercent
+    );
   }
 
   async getDevicesWithFileVaultDisabled() {
-    const res = await this.v2.post("/devices", {
-      filters: [{ audit_field: "filevault_enabled", type: "boolean", operation: "=", value: false }],
-      page: 1,
-      per_page: 100,
-    });
-    return res.data;
+    const allDevices = await this.getDevices();
+    return allDevices.filter((d: Record<string, unknown>) => !d.filevault_enabled);
   }
 
   async getDevicesWithFirewallDisabled() {
-    const res = await this.v2.post("/devices", {
-      filters: [{ audit_field: "firewall_enabled", type: "boolean", operation: "=", value: false }],
-      page: 1,
-      per_page: 100,
-    });
-    return res.data;
+    const allDevices = await this.getDevices();
+    return allDevices.filter((d: Record<string, unknown>) => !d.firewall_enabled);
   }
 
   async getExpiringWarrantyDevices(daysLeft = 90) {
-    const res = await this.v2.post("/devices", {
-      filters: [
-        { audit_field: "warranty_days_left", type: "number", operation: "<=", value: daysLeft },
-        { audit_field: "warranty_days_left", type: "number", operation: ">=", value: 0 },
-      ],
-      page: 1,
-      per_page: 100,
-    });
-    return res.data;
+    const allDevices = await this.getDevices();
+    return allDevices.filter((d: Record<string, unknown>) =>
+      d.warranty_days_left !== undefined &&
+      Number(d.warranty_days_left) >= 0 &&
+      Number(d.warranty_days_left) <= daysLeft
+    );
   }
 
-  async searchDevices(filters: object[] = [], page = 1, perPage = 50) {
-    const res = await this.v2.post("/devices", { filters, page, per_page: perPage });
-    return res.data;
+  async searchDevices(filters: Record<string, unknown>[]) {
+    const allDevices = await this.getDevices();
+    return allDevices.filter((device: Record<string, unknown>) =>
+      filters.every((filter) => {
+        const field = filter.audit_field as string;
+        const value = filter.value;
+        const operation = filter.operation as string;
+        const deviceValue = device[field];
+        if (deviceValue === undefined) return false;
+        switch (operation) {
+          case "=": return deviceValue === value;
+          case "!=": return deviceValue !== value;
+          case "contains": return String(deviceValue).includes(String(value));
+          case ">=": return Number(deviceValue) >= Number(value);
+          case "<=": return Number(deviceValue) <= Number(value);
+          case ">": return Number(deviceValue) > Number(value);
+          case "<": return Number(deviceValue) < Number(value);
+          default: return true;
+        }
+      })
+    );
   }
 
   async getApplications() {
-    const res = await this.v2.post("/devices", {
-      filters: [],
-      page: 1,
-      per_page: 100,
-    });
-    // Return installed_applications field from devices
+    const res = await this.v1.get("/applications", { params: this.v1Params() });
     return res.data;
   }
 
   // ── Policy helpers ──────────────────────────────────────────────
 
   async getPolicies() {
-    const res = await this.v2.get("/policies");
+    const res = await this.v1.get("/policies", { params: this.v1Params() });
     return res.data;
   }
 
   async getPolicyDevices(policyId: string) {
-    const res = await this.v2.post("/devices", {
-      filters: [{ audit_field: "policy_id", type: "string", operation: "=", value: policyId }],
-      page: 1,
-      per_page: 100,
+    const res = await this.v1.get("/policies/devices", {
+      params: this.v1Params({ policy_id: policyId }),
     });
     return res.data;
   }
 
   async assignDeviceToPolicy(policyId: string, agentId: string) {
-    const res = await this.v2.put(`/policies/${policyId}/devices`, { agent_id: agentId });
+    const params = new URLSearchParams({
+      client_id: this.clientId,
+      client_secret: this.clientSecret,
+    });
+    const res = await this.v1.post(
+      `/policies/devices?${params.toString()}`,
+      new URLSearchParams({ policy_id: policyId, agent_id: agentId }),
+      { headers: { "Content-Type": "application/x-www-form-urlencoded" } }
+    );
     return res.data;
   }
 
   // ── Alert helpers ───────────────────────────────────────────────
 
   async getAlerts(status?: string, page = 1, perPage = 50) {
-    const params: Record<string, string | number> = { page, per_page: perPage };
+    const params: Record<string, string> = {
+      page: String(page),
+      per_page: String(perPage),
+    };
     if (status) params["status"] = status;
-    const res = await this.v2.get("/alerts", { params });
+    const res = await this.v1.get("/alerts", { params: this.v1Params(params) });
     return res.data;
   }
 
   async getMaintenance(page = 1, perPage = 50) {
-    const res = await this.v2.get("/maintenance", { params: { page, per_page: perPage } });
+    const res = await this.v1.get("/maintenance", {
+      params: this.v1Params({ page: String(page), per_page: String(perPage) }),
+    });
     return res.data;
   }
 }
