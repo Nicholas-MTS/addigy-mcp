@@ -1,22 +1,10 @@
 import axios, { AxiosInstance } from "axios";
 
 export class AddigyClient {
-  private v1: AxiosInstance;
   private v2: AxiosInstance;
-  private clientId: string;
-  private clientSecret: string;
 
-  constructor(clientId: string, clientSecret: string, apiToken: string) {
-    this.clientId = clientId;
-    this.clientSecret = clientSecret;
-
-    // V1 — credentials passed as query params on every request
-    this.v1 = axios.create({
-      baseURL: "https://prod.addigy.com/api",
-      timeout: 30000,
-    });
-
-    // V2 — Bearer token auth
+  constructor(_clientId: string, _clientSecret: string, apiToken: string) {
+    // V1 is deprecated — all calls use V2 Bearer token auth
     this.v2 = axios.create({
       baseURL: "https://api.addigy.com/api/v2",
       timeout: 30000,
@@ -27,70 +15,28 @@ export class AddigyClient {
     });
   }
 
-  // ── V1 helpers ──────────────────────────────────────────────────
-
-  private v1Params(extra: Record<string, string> = {}) {
-    return { client_id: this.clientId, client_secret: this.clientSecret, ...extra };
-  }
+  // ── Device helpers ──────────────────────────────────────────────
 
   async getDevices() {
-    const res = await this.v1.get("/devices", { params: this.v1Params() });
+    const res = await this.v2.post("/devices", { filters: [], page: 1, per_page: 100 });
     return res.data;
   }
 
   async getOnlineDevices() {
-    const res = await this.v1.get("/devices/online", { params: this.v1Params() });
-    return res.data;
-  }
-
-  async getPolicies() {
-    const res = await this.v1.get("/policies", { params: this.v1Params() });
-    return res.data;
-  }
-
-  async getPolicyDevices(policyId: string) {
-    const res = await this.v1.get("/policies/devices", {
-      params: this.v1Params({ policy_id: policyId }),
+    const res = await this.v2.post("/devices", {
+      filters: [{ audit_field: "online", type: "boolean", operation: "=", value: true }],
+      page: 1,
+      per_page: 100,
     });
     return res.data;
   }
 
-  async assignDeviceToPolicy(policyId: string, agentId: string) {
-    const params = new URLSearchParams({
-      client_id: this.clientId,
-      client_secret: this.clientSecret,
+  async getOfflineDevices() {
+    const res = await this.v2.post("/devices", {
+      filters: [{ audit_field: "online", type: "boolean", operation: "=", value: false }],
+      page: 1,
+      per_page: 100,
     });
-    const res = await this.v1.post(
-      `/policies/devices?${params.toString()}`,
-      new URLSearchParams({ policy_id: policyId, agent_id: agentId }),
-      { headers: { "Content-Type": "application/x-www-form-urlencoded" } }
-    );
-    return res.data;
-  }
-
-  async getAlerts(status?: string, page = 1, perPage = 50) {
-    const params: Record<string, string> = { page: String(page), per_page: String(perPage) };
-    if (status) params["status"] = status;
-    const res = await this.v1.get("/alerts", { params: this.v1Params(params) });
-    return res.data;
-  }
-
-  async getMaintenance(page = 1, perPage = 50) {
-    const res = await this.v1.get("/maintenance", {
-      params: this.v1Params({ page: String(page), per_page: String(perPage) }),
-    });
-    return res.data;
-  }
-
-  async getApplications() {
-    const res = await this.v1.get("/applications", { params: this.v1Params() });
-    return res.data;
-  }
-
-  // ── V2 helpers ──────────────────────────────────────────────────
-
-  async searchDevices(filters: object[] = [], page = 1, perPage = 50) {
-    const res = await this.v2.post("/devices", { filters, page, per_page: perPage });
     return res.data;
   }
 
@@ -106,15 +52,6 @@ export class AddigyClient {
   async getDevicesByOS(osVersion: string) {
     const res = await this.v2.post("/devices", {
       filters: [{ audit_field: "mac_os_x_version", type: "string", operation: "contains", value: osVersion }],
-      page: 1,
-      per_page: 100,
-    });
-    return res.data;
-  }
-
-  async getOfflineDevices() {
-    const res = await this.v2.post("/devices", {
-      filters: [{ audit_field: "online", type: "boolean", operation: "=", value: false }],
       page: 1,
       per_page: 100,
     });
@@ -157,6 +94,56 @@ export class AddigyClient {
       page: 1,
       per_page: 100,
     });
+    return res.data;
+  }
+
+  async searchDevices(filters: object[] = [], page = 1, perPage = 50) {
+    const res = await this.v2.post("/devices", { filters, page, per_page: perPage });
+    return res.data;
+  }
+
+  async getApplications() {
+    const res = await this.v2.post("/devices", {
+      filters: [],
+      page: 1,
+      per_page: 100,
+    });
+    // Return installed_applications field from devices
+    return res.data;
+  }
+
+  // ── Policy helpers ──────────────────────────────────────────────
+
+  async getPolicies() {
+    const res = await this.v2.get("/policies");
+    return res.data;
+  }
+
+  async getPolicyDevices(policyId: string) {
+    const res = await this.v2.post("/devices", {
+      filters: [{ audit_field: "policy_id", type: "string", operation: "=", value: policyId }],
+      page: 1,
+      per_page: 100,
+    });
+    return res.data;
+  }
+
+  async assignDeviceToPolicy(policyId: string, agentId: string) {
+    const res = await this.v2.put(`/policies/${policyId}/devices`, { agent_id: agentId });
+    return res.data;
+  }
+
+  // ── Alert helpers ───────────────────────────────────────────────
+
+  async getAlerts(status?: string, page = 1, perPage = 50) {
+    const params: Record<string, string | number> = { page, per_page: perPage };
+    if (status) params["status"] = status;
+    const res = await this.v2.get("/alerts", { params });
+    return res.data;
+  }
+
+  async getMaintenance(page = 1, perPage = 50) {
+    const res = await this.v2.get("/maintenance", { params: { page, per_page: perPage } });
     return res.data;
   }
 }
