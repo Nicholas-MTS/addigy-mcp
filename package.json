@@ -4,7 +4,7 @@
   "description": "MCP server for Addigy Apple device management",
   "type": "module",
   "scripts": {
-    "build": "esbuild src/httpServer.ts --bundle --platform=node --target=node20 --format=esm --outfile=dist/httpServer.js --external:@modelcontextprotocol/sdk --external:axios --external:zod",
+    "build": "esbuild src/httpServer.ts src/addigy-client.ts src/tools/devices.ts src/tools/policies.ts src/tools/alerts.ts --platform=node --target=node20 --format=esm --outdir=dist --sourcemap",
     "start": "node dist/httpServer.js",
     "dev": "tsx src/httpServer.ts"
   },
