@@ -9,7 +9,7 @@ export class AddigyClient {
       baseURL: "https://api.addigy.com/api/v2",
       timeout: 30000,
       headers: {
-        Authorization: `Bearer ${apiToken}`,
+        "api-key": apiToken,
         "Content-Type": "application/json",
       },
     });
